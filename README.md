@@ -33,45 +33,174 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="82cd", MODE="06
 then `sudo udevadm control --reload` and replug the monitor. The tool finds the right
 `/dev/hidrawN` by itself; `--device /dev/hidrawN` overrides that.
 
-## Usage
+## First steps
+
+Switch the monitor on, wait for the warm-up, plug it in, and ask for its live readings:
 
 ```
-python3 quaelis.py status
-python3 quaelis.py download -o measurements.csv
-TZ=Europe/Madrid python3 quaelis.py set-time
+$ python3 quaelis.py status
+clock        2026-10-07 00:12:07
+records      17
+T            23.6
+RH           70.5
+CO2          505
+HCHO         0.0
+C6H6         0.017
+PM2.5        4
+thresholds   {'T': (0.0, 70.0), 'RH': (10.0, 95.0), 'CO2': (600, 1200), 'HCHO': (0.01, 0.1), 'C6H6': (0.002, 0.03), 'PM2.5': (15, 50)}
+flags        0003
+recording    True
 ```
 
-### Time zones
+- `clock` is the monitor clock, in local time, as shown on its screen.
+- `records` is the number of measurements stored so far; `recording True` means a recording is
+  in progress.
+- The six readings are in the units of the table below.
+- `thresholds` are the (yellow, red) alarm levels of each reading.
+- `flags` is not understood yet.
 
-The monitor displays local time, so `set-time` sends the time zone offset of the computer (or of
-`TZ`). Like any wall clock, it needs `set-time` again after each daylight saving change.
-
-Recorded data are not affected by this: the monitor stores the start of a recording in UTC, and
-`download` writes a `time_utc` column in ISO 8601 (`2025-05-14T13:09:02Z`).
-
-### Starting a recording
+If the clock is wrong, set it (the monitor shows local time, so give your time zone):
 
 ```
-TZ=Europe/Madrid python3 quaelis.py set-params --name office --records 1440 --interval 1 --unit min \
-    --threshold CO2=800,1200 --threshold PM2.5=15,50
+$ TZ=Europe/Madrid python3 quaelis.py set-time
+clock now 2026-10-07 00:14:30
 ```
 
-Options not given keep their current value. Thresholds are `NAME=LOW,HIGH` in display units,
-`NAME` one of `T`, `RH`, `CO2`, `HCHO`, `C6H6`, `PM2.5`; the low value is the yellow alarm, the
-high value the red (and audible) alarm. Thresholds set this way replace those set with the
-buttons.
+| Column | Quantity | Unit |
+|---|---|---|
+| `T` | temperature | °C |
+| `RH` | relative humidity | % |
+| `CO2` | carbon dioxide | ppm |
+| `HCHO` | formaldehyde | mg/m³ |
+| `C6H6` | benzene equivalent (volatile organic compounds) | mg/m³ |
+| `PM2.5` | fine particles | µg/m³ |
 
-**`set-params` erases the stored records.** It therefore downloads them first and saves them to
-`quaelis_backup_<UTC time>.csv` in the current directory.
+## Logging data
 
-By default the recording starts immediately. With `--manual` the monitor waits for a short press
-to the LEFT of the button, as the "Manual" option of the Windows software does (useful to start a
-recording away from the computer).
+There are two ways, and they can be combined:
 
-`status`, `params`, `download` and `set-time` can be used during a recording without stopping it
-(`status` shows `recording True`). The Windows software's own parameter request stops a
-recording, so this tool reads the parameters in another way. According to the manual, pressing
-the monitor's buttons during a recording also stops it.
+| | Recording on the monitor | Live logging from the computer |
+|---|---|---|
+| Computer needed during logging | no | yes, all the time |
+| Maximum length | 10000 records | unlimited |
+| Interval | 1 s to 255 h | any |
+| Commands | `set-params`, then `download` | `examples/live_log.py` |
+
+### Recording on the monitor
+
+**1. Choose the interval and the number of records.** Their product is the length of the
+recording:
+
+| Interval | Records | Length |
+|---|---|---|
+| 10 s | 360 | 1 hour |
+| 1 min | 1440 | 1 day |
+| 5 min | 2016 | 1 week |
+| 10 min | 4320 | 30 days |
+| 1 h | 8760 | 1 year |
+
+**2. Start the recording.** For one day, one record per minute:
+
+```
+TZ=Europe/Madrid python3 quaelis.py set-params --name office --interval 1 --unit min --records 1440
+```
+
+This first saves the records stored in the monitor to `quaelis_backup_<UTC time>.csv` in the
+current directory (**`set-params` erases them**), then writes the parameters, starts the
+recording and prints the parameters as read back. It also stores the time zone offset, hence
+the `TZ`.
+
+Options not given keep their current value, so repeating a recording with the same settings is
+just `python3 quaelis.py set-params`. With `--manual` the monitor does not start at once, but
+waits for a short press to the LEFT of its button (useful to start away from the computer).
+
+**3. Check the progress** at any time, without disturbing the recording:
+
+```
+$ python3 quaelis.py params
+address        1
+serial
+test_name
+tz_offset_min  -120
+total_records  100
+interval       60
+interval_unit  0
+state          1
+start          2026-10-06 21:55:34
+records        17
+thresholds     {'T': (0.0, 70.0), ...}
+```
+
+Here 17 of 100 records are taken, one every 60 `s` (`interval_unit` 0 = s, 1 = min, 2 = h).
+`start` is in UTC; `tz_offset_min` is minus the offset of local time (`-120` is UTC+2).
+When `records` reaches `total_records`, the monitor stops by itself.
+
+**4. Download** (during or after the recording; it does not erase anything):
+
+```
+$ python3 quaelis.py download -o office.csv
+$ head -4 office.csv
+index,time_utc,T,RH,CO2,HCHO,C6H6,PM2.5
+0,2026-10-06T21:55:34Z,23.6,70.3,501,0.0,0.017,4
+1,2026-10-06T21:56:34Z,23.6,70.3,494,0.0,0.017,4
+2,2026-10-06T21:57:34Z,23.6,70.4,497,0.0,0.017,4
+```
+
+Without `-o`, the CSV goes to the standard output. Timestamps are UTC, in ISO 8601, computed
+from the start of the recording and the interval.
+
+**What stops a recording:** `set-params` (it starts a new one), the Windows software, and,
+according to the manual, pressing the monitor's buttons. `status`, `params`, `download` and
+`set-time` do not stop it.
+
+### Live logging from the computer
+
+`examples/live_log.py` reads the live values every few seconds and writes them as CSV until you
+press Ctrl+C. It does not touch the stored records or a recording in progress.
+
+```
+$ python3 examples/live_log.py 2 > live.csv
+^C
+$ cat live.csv
+time_utc,T,RH,CO2,HCHO,C6H6,PM2.5
+2026-10-06T22:12:51Z,23.5,70.5,499,0.0,0.017,4
+2026-10-06T22:12:53Z,23.5,70.4,499,0.0,0.017,4
+2026-10-06T22:12:55Z,23.5,70.5,499,0.0,0.017,4
+```
+
+The argument is the interval in seconds (default 10). For long sessions, run it under `nohup`,
+`tmux` or a systemd service. The script is also a short example of using `quaelis.py` as a
+Python module (`Quaelis().status()` returns a dictionary).
+
+### Using the CSV files
+
+Both kinds of file open directly in a spreadsheet, or in Python:
+
+```python
+import pandas as pd
+df = pd.read_csv("office.csv", parse_dates=["time_utc"]).set_index("time_utc")
+df["CO2"].plot()
+```
+
+## Alarm thresholds
+
+The face on the screen turns yellow when a reading passes the low threshold and red (with a beep)
+when it passes the high one. `set-params` can set them, as `NAME=LOW,HIGH` in the units above:
+
+```
+TZ=Europe/Madrid python3 quaelis.py set-params --threshold CO2=800,1200 --threshold PM2.5=15,50
+```
+
+`NAME` is one of `T`, `RH`, `CO2`, `HCHO`, `C6H6`, `PM2.5`. Thresholds set this way replace
+those set with the buttons. Like any `set-params`, this starts a new recording (after saving
+the old records).
+
+## Time zones
+
+The monitor displays local time, so `set-time` and `set-params` send the time zone offset of the
+computer (or of `TZ`). Like any wall clock, it needs `set-time` again after each daylight saving
+change. Recorded data are not affected by this: the monitor stores the start of a recording in
+UTC.
 
 ## Calibration
 
