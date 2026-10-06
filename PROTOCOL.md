@@ -22,10 +22,10 @@ Status legend: **[sure]** seen and consistent in both captures; **[guess]** plau
 |---|---|---|---|
 | 1 | Output | 6 | set clock |
 | 2 | Output | 60 | write parameters (two frames) |
-| 3 | Output | 1 | ask for parameters (answer in report 7) |
+| 3 | Output | 1 | ask for parameters (answer in report 7); **stops a running recording** |
 | 4 | Output | 2 | ask for record block *n* (answer in report 8) |
 | 5 | Input | 32 (61 returned) | live status |
-| 6 | Input | 60 | parameters (two frames) |
+| 6 | Input | 60 | parameters (two frames), no command needed; read only fields 71..76 and 93 are zero |
 | 7 | Input | 60 | parameters, after report 3 (two frames) |
 | 8 | Input | 60 | record block |
 
@@ -58,7 +58,8 @@ The manual says the software sends this automatically on connect / "SET TIME".
 | 15 | 2 | benzene eq., raw/1000 mg/m³ |
 | 17 | 2 | PM2.5 µg/m³ |
 | 19 | 24 | thresholds: T lo/hi, RH lo/hi, CO2 lo/hi, HCHO lo/hi, C6H6 lo/hi, PM lo/hi (same scales) |
-| 43 | 2 | unknown, seen `00 03`, `03 01`, `03 00` [guess: flags, e.g. recording / unit / alarm] |
+| 43 | 2 | unknown, seen `00 03` [guess: flags, e.g. unit / alarm] |
+| 45 | 1 | `01` while recording, `00` otherwise [verified live] |
 
 ## Parameter block (reports 2, 6, 7)
 
@@ -92,6 +93,12 @@ The software's "Set Param" dialog writes byte 70 from its Immediately/Manual rad
 around 0x41b4e9) and then shows "The meter is recording data" or "To recording data,you must press the
 button on the meter". Both captures used Manual.
 Thresholds set here override those set with the buttons (manual, troubleshooting table).
+
+Sending report 3 stops a running recording at once (status byte 45 drops to `00`, the count
+freezes; verified live). Report 1 (set clock), report 4/8 (download), report 5 (status) and
+GET_REPORT 6 do not. This is the "do not perform any actions on the software" warning in the
+manual. `quaelis.py` therefore reads the parameters from report 6, and the record count from
+report 5.
 
 ## Records (reports 4 and 8) **[sure]**
 

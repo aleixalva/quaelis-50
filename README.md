@@ -68,6 +68,11 @@ By default the recording starts immediately. With `--manual` the monitor waits f
 to the LEFT of the button, as the "Manual" option of the Windows software does (useful to start a
 recording away from the computer).
 
+`status`, `params`, `download` and `set-time` can be used during a recording without stopping it
+(`status` shows `recording True`). The Windows software's own parameter request stops a
+recording, so this tool reads the parameters in another way. According to the manual, pressing
+the monitor's buttons during a recording also stops it.
+
 ## Calibration
 
 CO2 calibration cannot be done over USB: neither the monitor nor the Windows software has a
