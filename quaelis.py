@@ -66,12 +66,13 @@ class Quaelis:
         return decode_status(self.get(5))
 
     def params(self):
-        return decode_params(self.raw_params())
+        p = decode_params(self.raw_params())
+        p["records"] = self.status()["records"]  # zero in report 6
+        return p
 
     def raw_params(self):
-        self.send([3, 0])
-        time.sleep(0.01)
-        frames = sorted([self.get(7), self.get(7)], key=lambda r: r[1])
+        # Report 6, not 3/7 as the Windows software mostly does: sending report 3 stops a recording.
+        frames = sorted([self.get(6), self.get(6)], key=lambda r: r[1])
         assert [r[1] for r in frames] == [0, 1], "unexpected parameter frames"
         return frames[0][2:] + frames[1][2:]
 
@@ -126,6 +127,7 @@ def decode_status(r):
         "PM2.5": u16(r, 17),
         "thresholds": thresholds(r, 19),
         "flags": r[43:45].hex(),
+        "recording": r[45] == 1,
     }
 
 
